@@ -5,5 +5,5 @@
 # tools are installed separately — see the Makefile `install` target.
 
 pre-commit==4.0.1
-checkov==3.2.334
+checkov==3.3.29
 semgrep==1.97.0
