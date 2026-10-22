@@ -4,6 +4,6 @@
 # Node-based (Spectral) and Go-based (Conftest, Trivy, gitleaks, terraform)
 # tools are installed separately — see the Makefile `install` target.
 
-pre-commit==4.0.1
+pre-commit==4.7.0
 checkov==3.2.334
 semgrep==1.97.0
