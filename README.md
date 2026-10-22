@@ -130,6 +130,10 @@ Make it blocking:
    jobs (`checkov`, `trivy`, `spectral`, `semgrep`, `gitleaks`, `conftest`)
    as **required status checks**.
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full required-checks setup and
+the policy-authoring guide. Dependency/action versions are kept current by
+Dependabot (`.github/dependabot.yml`).
+
 ### 3. Run individual tools manually
 
 ```bash
