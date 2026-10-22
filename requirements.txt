@@ -6,4 +6,4 @@
 
 pre-commit==4.0.1
 checkov==3.2.334
-semgrep==1.97.0
+semgrep==1.181.0
