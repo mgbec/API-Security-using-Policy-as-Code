@@ -1,0 +1,18 @@
+# Custom Checkov policy (YAML-based custom check)
+# OWASP API4:2023 - Unrestricted Resource Consumption
+#
+# Requires every API Gateway v2 stage to define default route throttling
+# so a single caller cannot exhaust capacity or run up costs.
+
+metadata:
+  id: "CKV_OWASP_API4_1"
+  name: "API Gateway stage must set default throttling limits (OWASP API4)"
+  category: "NETWORKING"
+  severity: "HIGH"
+
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "aws_apigatewayv2_stage"
+  attribute: "default_route_settings.throttling_rate_limit"
+  operator: "exists"

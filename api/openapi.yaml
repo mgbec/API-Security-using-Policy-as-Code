@@ -1,0 +1,118 @@
+openapi: 3.1.0
+info:
+  title: Secure Example API
+  version: 1.0.0
+  description: >-
+    Example API contract demonstrating OWASP-aligned design. Linted by
+    Spectral with the OWASP API Security ruleset (.spectral.yaml).
+  contact:
+    name: Platform Security
+    url: https://example.com/support
+    email: security@example.com
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: https://api.example.com/v1
+    description: Production
+
+# Global auth requirement -> OWASP API2. Every operation inherits this
+# unless it explicitly overrides, so no route is accidentally public.
+security:
+  - bearerAuth: []
+
+paths:
+  /items/{id}:
+    description: >-
+      Returns a single item. Authorization (OWASP API1 BOLA): the handler
+      must verify the authenticated subject owns item {id} before returning.
+    get:
+      operationId: getItem
+      summary: Get an item by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            maxLength: 36
+      responses:
+        '200':
+          description: The requested item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+        '401':
+          description: Unauthenticated
+        '403':
+          description: Forbidden (caller does not own the item)
+        '404':
+          description: Not found
+
+  /items:
+    description: List items owned by the caller (scoped server-side).
+    get:
+      operationId: listItems
+      summary: List items
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          description: Page size; bounded to protect against API4 abuse.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A bounded page of items
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    maxItems: 100
+                    items:
+                      $ref: '#/components/schemas/Item'
+                  nextCursor:
+                    type: string
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Item:
+      type: object
+      # additionalProperties:false prevents mass assignment / over-exposure
+      # -> OWASP API3 BOPLA.
+      additionalProperties: false
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 255
+        createdAt:
+          type: string
+          format: date-time

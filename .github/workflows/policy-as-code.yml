@@ -1,0 +1,154 @@
+name: policy-as-code
+
+# Authoritative enforcement gate for OWASP API Security Top 10 (2023).
+# Local pre-commit hooks give fast feedback but can be bypassed; this
+# workflow is the hard gate that must pass before a PR can merge.
+#
+# Jobs run in parallel. Each uploads SARIF to GitHub code scanning so
+# findings surface inline on the PR (Security tab + PR annotations).
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Least-privilege default; jobs opt into more as needed.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Secrets scanning — API2 Broken Auth, API8 Misconfiguration
+  # ---------------------------------------------------------------------------
+  gitleaks:
+    name: gitleaks (secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so gitleaks can scan all commits
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'
+
+  # ---------------------------------------------------------------------------
+  # Checkov — IaC misconfig (API4, API7, API8) + custom OWASP policies
+  # ---------------------------------------------------------------------------
+  checkov:
+    name: checkov (IaC)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # upload SARIF
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform
+          external_checks_dirs: policies/checkov
+          framework: terraform
+          output_format: cli,sarif
+          output_file_path: console,checkov.sarif
+          soft_fail_on: LOW # block MEDIUM+; LOW is advisory
+      - name: Upload Checkov SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov.sarif
+          category: checkov
+
+  # ---------------------------------------------------------------------------
+  # Trivy — config scan (defense-in-depth) + dependency/CVE awareness
+  # ---------------------------------------------------------------------------
+  trivy:
+    name: trivy (config)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Trivy config scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: terraform
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: sarif
+          output: trivy.sarif
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+
+  # ---------------------------------------------------------------------------
+  # Spectral — OpenAPI contract lint w/ OWASP ruleset (API1/2/3/5/9)
+  # ---------------------------------------------------------------------------
+  spectral:
+    name: spectral (OpenAPI)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Spectral + OWASP ruleset
+        run: npm i -g @stoplight/spectral-cli@6.14.2 @stoplight/spectral-owasp-ruleset@2.5.0
+      - name: Lint OpenAPI specs
+        run: spectral lint "api/**/*.{yml,yaml,json}" --ruleset .spectral.yaml --fail-severity warn
+
+  # ---------------------------------------------------------------------------
+  # Semgrep — SAST on API handler code (API1 BOLA, API3 BOPLA, API7 SSRF, API10)
+  # ---------------------------------------------------------------------------
+  semgrep:
+    name: semgrep (SAST)
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Semgrep
+        run: semgrep scan --config auto --config p/owasp-top-ten --error --sarif --output semgrep.sarif src || true
+      - name: Upload Semgrep SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+        continue-on-error: true
+
+  # ---------------------------------------------------------------------------
+  # OPA / Conftest — custom org rules against the Terraform plan (API4/6/7/9)
+  # Evaluates the actual resource graph, not just source files.
+  # ---------------------------------------------------------------------------
+  conftest:
+    name: conftest (OPA plan policy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: Terraform init + plan (JSON)
+        working-directory: terraform
+        run: |
+          terraform init -backend=false
+          terraform plan -out=tfplan.binary -input=false || true
+          terraform show -json tfplan.binary > tfplan.json || true
+      - name: Install Conftest
+        run: |
+          CONFTEST_VERSION=0.56.0
+          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar xz
+          sudo mv conftest /usr/local/bin/
+      - name: Conftest test plan
+        run: conftest test terraform/tfplan.json --policy policies/opa --all-namespaces

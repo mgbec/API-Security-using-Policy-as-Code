@@ -1,0 +1,46 @@
+# Spectral ruleset for API contract linting.
+# Extends the community OWASP API Security ruleset, which maps rules
+# directly to the OWASP API Security Top 10 (2023).
+#
+# Install + run locally:
+#   npm i -g @stoplight/spectral-cli @stoplight/spectral-owasp-ruleset
+#   spectral lint api/openapi.yaml --ruleset .spectral.yaml
+#
+# Catches design-level risks that infra scanners cannot see:
+#   API1 BOLA  - missing per-object security on parameterized paths
+#   API2 Auth  - missing/weak security schemes, no global security
+#   API3 BOPLA - schemas allowing additionalProperties (mass assignment)
+#   API5 BFLA  - operations missing security definitions
+#   API9 Inv.  - missing versioning / incomplete info / server definitions
+
+extends:
+  - '@stoplight/spectral-owasp-ruleset'
+  - 'spectral:oas'
+
+rules:
+  # Tighten a few rules from warning to error for a hard gate.
+
+  # API3 BOPLA: request bodies must forbid unexpected properties.
+  owasp:api3:2023-constrained-additionalProperties: error
+
+  # API2: every operation must declare a security requirement.
+  owasp:api2:2023-security-requirement-exists: error
+
+  # API4 Unrestricted Resource Consumption: array responses must be bounded.
+  owasp:api4:2023-array-limit: error
+
+  # API9 Improper Inventory Management: require an explicit version.
+  info-contact: warn
+  info-description: error
+
+  # Custom org rule: every path with an {id}-style param should document
+  # the authorization behavior (nudge toward BOLA/BFLA awareness).
+  owasp-parameterized-path-has-description:
+    description: >-
+      Paths with path parameters must describe the authorization check
+      (OWASP API1 BOLA / API5 BFLA). Document who may access the object.
+    given: "$.paths[?(@property.match(/\\{.+\\}/))]"
+    severity: warn
+    then:
+      field: description
+      function: truthy

@@ -1,0 +1,19 @@
+# Custom Checkov policy
+# OWASP API8:2023 - Security Misconfiguration
+#
+# Requires API Gateway v2 stages to have access logging configured.
+# Missing access logs is a common misconfiguration that blinds detection
+# and incident response.
+
+metadata:
+  id: "CKV_OWASP_API8_1"
+  name: "API Gateway stage must enable access logging (OWASP API8)"
+  category: "LOGGING"
+  severity: "MEDIUM"
+
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "aws_apigatewayv2_stage"
+  attribute: "access_log_settings.destination_arn"
+  operator: "exists"
